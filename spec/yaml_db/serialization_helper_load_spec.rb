@@ -1,3 +1,5 @@
+require 'yaml'
+
 module YamlDb
   module SerializationHelper
     RSpec.describe Load do
