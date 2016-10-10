@@ -1,3 +1,6 @@
+require 'yaml'
+require 'active_record'
+
 module YamlDb
   module SerializationHelper
 
@@ -193,6 +196,74 @@ module YamlDb
 
       def self.table_record_count(table)
         ActiveRecord::Base.connection.select_one("SELECT COUNT(*) FROM #{Utils.quote_table(table)}").values.first.to_i
+      end
+
+    end
+
+    class LoadHandler < YAML::Handler
+
+      def initialize
+        @section = 'table'
+        @row = Array.new
+        @data = Hash.new
+        @data['columns'] = Array.new
+        @data['records'] = Array.new
+        @first = true
+        @contd = false
+        @count = 0
+        @batch_size = 1000
+      end
+
+      def end_document(implicit)
+        unless @data.empty?
+          if @contd
+            Load::load_table(@table_name, @data, truncate=false)
+          else
+            Load::load_table(@table_name, @data, truncate=true)
+            @contd = false
+          end
+          @data['columns'] = Array.new
+          @data['records'] = Array.new
+        end
+        @first = true
+        @section = 'table'
+      end
+
+      def scalar(value, anchor, tag, plain, quoted, style)
+        if @section == 'table'
+          @table_name = value
+          @section = 'columns'
+        elsif @section == 'columns'
+          unless @first then @data['columns'] << value end
+          @first = false
+        elsif @section == 'records'
+          unless @first
+            if value.empty?
+              if quoted then @row << value else @row << nil end
+            elsif tag == '!binary'
+              @row << Base64.decode64(value)
+            else
+              @row << value
+            end
+          end
+          @first = false
+        end
+      end
+
+      def end_sequence()
+        if @section == 'columns'
+          @section = 'records'
+          @first = true
+        elsif @section == 'records'
+          unless @row.empty? then @data['records'] << @row end
+          @row = Array.new
+          @count += 1
+          if @count % @batch_size == 0
+            @contd = true
+            Load::load_table(@table_name, @data, truncate=false)
+            @data['records'] = Array.new
+          end
+        end
       end
 
     end
