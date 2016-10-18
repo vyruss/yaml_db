@@ -1,6 +1,3 @@
-require 'yaml'
-require 'active_record'
-
 module YamlDb
   module SerializationHelper
 
@@ -200,6 +197,7 @@ module YamlDb
 
     end
 
+    require 'yaml'
     class LoadHandler < YAML::Handler
 
       def initialize
