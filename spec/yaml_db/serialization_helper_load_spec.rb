@@ -1,5 +1,3 @@
-require 'yaml'
-
 module YamlDb
   module SerializationHelper
     RSpec.describe Load do
@@ -13,13 +11,16 @@ module YamlDb
       end
 
       it "truncates the table" do
-        allow(ActiveRecord::Base.connection).to receive(:execute).with("TRUNCATE mytable").and_return(true)
+        expect(ActiveRecord::Base.connection).to receive(:execute).with("SAVEPOINT before_truncation").and_return(true)
+        expect(ActiveRecord::Base.connection).to receive(:execute).with("TRUNCATE mytable CASCADE").and_return(true)
         expect(ActiveRecord::Base.connection).not_to receive(:execute).with("DELETE FROM mytable")
         Load.truncate_table('mytable')
       end
 
       it "deletes the table if truncate throws an exception" do
-        expect(ActiveRecord::Base.connection).to receive(:execute).with("TRUNCATE mytable").and_raise()
+        expect(ActiveRecord::Base.connection).to receive(:execute).with("SAVEPOINT before_truncation").and_return(true)
+        expect(ActiveRecord::Base.connection).to receive(:execute).with("TRUNCATE mytable CASCADE").and_raise()
+        expect(ActiveRecord::Base.connection).to receive(:execute).with("ROLLBACK TO SAVEPOINT before_truncation").and_return(true)
         expect(ActiveRecord::Base.connection).to receive(:execute).with("DELETE FROM mytable").and_return(true)
         Load.truncate_table('mytable')
       end
