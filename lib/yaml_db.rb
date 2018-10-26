@@ -1,7 +1,6 @@
 require 'rubygems'
 require 'yaml'
 require 'active_record'
-require 'active_support/core_ext/kernel/reporting'
 require 'rails/railtie'
 require 'yaml_db/rake_tasks'
 require 'yaml_db/version'
@@ -59,8 +58,12 @@ module YamlDb
 
   class Load < SerializationHelper::Load
     def self.load_documents(io, truncate = true)
-      parser = YAML::Parser.new(SerializationHelper::LoadHandler.new)
-      parser.parse(io)
+        YAML.load_stream(io) do |ydoc|
+          ydoc.keys.each do |table_name|
+            next if ydoc[table_name].nil?
+            load_table(table_name, ydoc[table_name], truncate)
+          end
+        end
     end
   end
 
