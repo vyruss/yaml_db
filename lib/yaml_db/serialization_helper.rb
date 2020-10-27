@@ -1,3 +1,5 @@
+require 'active_support/core_ext/kernel/reporting'
+
 module YamlDb
   module SerializationHelper
 
@@ -32,9 +34,7 @@ module YamlDb
 
       def load(filename, truncate = true)
         disable_logger
-        ActiveRecord::Base.connection.disable_referential_integrity do
-          @loader.load(File.new(filename, "r"), truncate)
-        end
+        @loader.load(File.new(filename, "r"), truncate)
         reenable_logger
       end
 
@@ -66,11 +66,9 @@ module YamlDb
 
       def self.truncate_table(table)
         begin
-          ActiveRecord::Base.connection.execute("SAVEPOINT before_truncation")
-          ActiveRecord::Base.connection.execute("TRUNCATE #{SerializationHelper::Utils.quote_table(table)} CASCADE")
+          ActiveRecord::Base.connection.execute("TRUNCATE #{Utils.quote_table(table)}")
         rescue Exception
-          ActiveRecord::Base.connection.execute("ROLLBACK TO SAVEPOINT before_truncation")
-          ActiveRecord::Base.connection.execute("DELETE FROM #{SerializationHelper::Utils.quote_table(table)}")
+          ActiveRecord::Base.connection.execute("DELETE FROM #{Utils.quote_table(table)}")
         end
       end
 
@@ -91,7 +89,7 @@ module YamlDb
         quoted_column_names = column_names.map { |column| ActiveRecord::Base.connection.quote_column_name(column) }.join(',')
         quoted_table_name = Utils.quote_table(table)
         records.each do |record|
-          quoted_values = record.zip(columns).map{|c| ActiveRecord::Base.connection.quote(c.first, c.last)}.join(',')
+          quoted_values = record.map{|c| ActiveRecord::Base.connection.quote(c)}.join(',')
           ActiveRecord::Base.connection.execute("INSERT INTO #{quoted_table_name} (#{quoted_column_names}) VALUES (#{quoted_values})")
         end
       end
@@ -145,6 +143,9 @@ module YamlDb
         ActiveRecord::Base.connection.quote_table_name(table)
       end
 
+      def self.quote_column(column)
+        ActiveRecord::Base.connection.quote_column_name(column)
+      end
     end
 
     class Dump
@@ -183,12 +184,12 @@ module YamlDb
       def self.each_table_page(table, records_per_page=1000)
         total_count = table_record_count(table)
         pages = (total_count.to_f / records_per_page).ceil - 1
-        id = table_column_names(table).first
+        keys = sort_keys(table)
         boolean_columns = Utils.boolean_columns(table)
         quoted_table_name = Utils.quote_table(table)
 
         (0..pages).to_a.each do |page|
-          query = Arel::Table.new(table).order(id).skip(records_per_page*page).take(records_per_page).project(Arel.sql('*'))
+          query = Arel::Table.new(table).order(*keys).skip(records_per_page*page).take(records_per_page).project(Arel.sql('*'))
           records = ActiveRecord::Base.connection.select_all(query.to_sql)
           records = Utils.convert_booleans(records, boolean_columns)
           yield records
@@ -199,75 +200,17 @@ module YamlDb
         ActiveRecord::Base.connection.select_one("SELECT COUNT(*) FROM #{Utils.quote_table(table)}").values.first.to_i
       end
 
-    end
+      # Return the first column as sort key unless the table looks like a
+      # standard has_and_belongs_to_many join table, in which case add the second "ID column"
+      def self.sort_keys(table)
+        first_column, second_column = table_column_names(table)
 
-    require 'yaml'
-    class LoadHandler < YAML::Handler
-
-      def initialize
-        @section = 'table'
-        @row = Array.new
-        @data = Hash.new
-        @data['columns'] = Array.new
-        @data['records'] = Array.new
-        @first = true
-        @contd = false
-        @count = 0
-        @batch_size = 1000
-      end
-
-      def end_document(implicit)
-        unless @data.empty?
-          if @contd
-            Load::load_table(@table_name, @data, truncate=false)
-          else
-            Load::load_table(@table_name, @data, truncate=true)
-            @contd = false
-          end
-          @data['columns'] = Array.new
-          @data['records'] = Array.new
-        end
-        @first = true
-        @section = 'table'
-      end
-
-      def scalar(value, anchor, tag, plain, quoted, style)
-        if @section == 'table'
-          @table_name = value
-          @section = 'columns'
-        elsif @section == 'columns'
-          unless @first then @data['columns'] << value end
-          @first = false
-        elsif @section == 'records'
-          unless @first
-            if value.empty?
-              if quoted then @row << value else @row << nil end
-            elsif tag == '!binary'
-              @row << Base64.decode64(value)
-            else
-              @row << value
-            end
-          end
-          @first = false
+        if [first_column, second_column].all? { |name| name =~ /_id$/ }
+          [Utils.quote_column(first_column), Utils.quote_column(second_column)]
+        else
+          [Utils.quote_column(first_column)]
         end
       end
-
-      def end_sequence()
-        if @section == 'columns'
-          @section = 'records'
-          @first = true
-        elsif @section == 'records'
-          unless @row.empty? then @data['records'] << @row end
-          @row = Array.new
-          @count += 1
-          if @count % @batch_size == 0
-            @contd = true
-            Load::load_table(@table_name, @data, truncate=false)
-            @data['records'] = Array.new
-          end
-        end
-      end
-
     end
 
   end

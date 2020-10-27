@@ -1,4 +1,4 @@
-require 'active_support/core_ext/kernel/debugger'
+
 
 module YamlDb
   RSpec.describe Load do
@@ -12,16 +12,19 @@ module YamlDb
 
     before(:each) do
       @io = StringIO.new
-      @parser = YAML::Parser.new(SerializationHelper::LoadHandler.new)
     end
 
     it "calls load structure for each document in the file" do
-      expect(@parser).to be_a YAML::Parser
-      expect(@parser).to receive(:parse).with(@io)
+      expect(YAML).to receive(:load_documents).with(@io).and_yield({ 'mytable' => {
+            'columns' => [ 'a', 'b' ],
+            'records' => [[1, 2], [3, 4]]
+          } } )
+      expect(Load).to receive(:load_table).with('mytable', { 'columns' => [ 'a', 'b' ], 'records' => [[1, 2], [3, 4]] },true)
+      Load.load(@io)
     end
 
     it "calls load structure when the document in the file contains no records" do
-      expect(YAML).to receive(:parse).with(@io)
+      expect(YAML).to receive(:load_documents).with(@io).and_yield({ 'mytable' => nil })
       expect(Load).not_to receive(:load_table)
       Load.load(@io)
     end
