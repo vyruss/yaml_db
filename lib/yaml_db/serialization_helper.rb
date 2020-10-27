@@ -85,7 +85,6 @@ module YamlDb
         if column_names.nil?
           return
         end
-        columns = column_names.map{|cn| ActiveRecord::Base.connection.columns(table).detect{|c| c.name == cn}}
         quoted_column_names = column_names.map { |column| ActiveRecord::Base.connection.quote_column_name(column) }.join(',')
         quoted_table_name = Utils.quote_table(table)
         records.each do |record|
@@ -186,7 +185,6 @@ module YamlDb
         pages = (total_count.to_f / records_per_page).ceil - 1
         keys = sort_keys(table)
         boolean_columns = Utils.boolean_columns(table)
-        quoted_table_name = Utils.quote_table(table)
 
         (0..pages).to_a.each do |page|
           query = Arel::Table.new(table).order(*keys).skip(records_per_page*page).take(records_per_page).project(Arel.sql('*'))
@@ -212,6 +210,5 @@ module YamlDb
         end
       end
     end
-
   end
 end
